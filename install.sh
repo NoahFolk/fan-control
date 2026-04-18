@@ -57,12 +57,13 @@ echo "If you selected incorrectly, Ctrl+C now in next 5 seconds!"
 sleep 5
 
 if [ "$USER_OS" = "1" ]; then
+    CONFIG_PROFILE="truenas"
     echo "creating fan-control.py"
     echo $TRUENASSHEBANG > /root/fan-control/fan-control.py
     cat /root/fan-control/defaults/fan-control.py | tail -n+2>> /root/fan-control/fan-control.py
     echo "creating gen-config.py"
     echo $TRUENASSHEBANG > /root/fan-control/gen-config.py
-    cat /root/fan-control/defaults/gen-config.py.truenas | tail -n+2>> /root/fan-control/gen-config.py
+    cat /root/fan-control/defaults/gen-config.py | tail -n+2>> /root/fan-control/gen-config.py
     echo "copying fan-control.sh to /root/fan-control/"
     echo "This is used to start/stop/restart the script. Alongside nohup it will survive thru shell session closure."
     cp /root/fan-control/defaults/fan-control.sh /root/fan-control/fan-control.sh
@@ -76,7 +77,7 @@ if [ "$USER_OS" = "1" ]; then
       nano /root/fan-control/gen-config.py
       echo "Executing gen-config.py to generate the config file"
     fi
-    /root/fan-control/gen-config.py
+    /root/fan-control/gen-config.py --profile $CONFIG_PROFILE
     echo "************************"
     echo "* USER ACTION REQUIRED *"
     echo "************************"
@@ -92,6 +93,7 @@ if [ "$USER_OS" = "1" ]; then
 fi
 
 if [ "$USER_OS" = "2" ]; then
+    CONFIG_PROFILE="proxmox"
     echo "installing requirements via apt. If already installed apt will skip on it's own."
     apt install ipmitool lm-sensors
     echo "creating fan-control.py"
@@ -99,7 +101,7 @@ if [ "$USER_OS" = "2" ]; then
     cat /root/fan-control/defaults/fan-control.py | tail -n+2>> /root/fan-control/fan-control.py
     echo "creating gen-config.py"
     echo $PROXMOXSHEBANG > /root/fan-control/gen-config.py
-    cat /root/fan-control/defaults/gen-config.py.proxmox | tail -n+2>> /root/fan-control/gen-config.py
+    cat /root/fan-control/defaults/gen-config.py | tail -n+2>> /root/fan-control/gen-config.py
     echo "copying service file to /root/fan-control/"
     echo "If you'd like to make changes to it/how it runs you can do that here"
     cp /root/fan-control/defaults/fan-control.service /root/fan-control/fan-control.service
@@ -112,7 +114,7 @@ if [ "$USER_OS" = "2" ]; then
       sleep 10
       nano /root/fan-control/gen-config.py
       echo "Executing gen-config.py to generate the config file"
-      /root/fan-control/gen-config.py
+            /root/fan-control/gen-config.py --profile $CONFIG_PROFILE
     fi
     echo "Creating link to service file"
     ln -s /root/fan-control/fan-control.service /etc/systemd/system/fan-control.service
@@ -127,12 +129,13 @@ if [ "$USER_OS" = "2" ]; then
 fi
 
 if [ "$USER_OS" = "3" ]; then
+    CONFIG_PROFILE="pfsense"
     echo "creating fan-control.py"
     echo $PFSENSESHEBANG > /root/fan-control/fan-control.py
     cat /root/fan-control/defaults/fan-control.py | tail -n+2>> /root/fan-control/fan-control.py
     echo "creating gen-config.py"
     echo $PFSENSESHEBANG > /root/fan-control/gen-config.py
-    cat /root/fan-control/defaults/gen-config.py.pfsense | tail -n+2>> /root/fan-control/gen-config.py
+    cat /root/fan-control/defaults/gen-config.py | tail -n+2>> /root/fan-control/gen-config.py
     echo "copying fan-control.sh to /root/fan-control/"
     echo "This is used to start/stop/restart the script. Alongside nohup it will survive thru shell session closure."
     cp /root/fan-control/defaults/fan-control.sh /root/fan-control/fan-control.sh
@@ -145,7 +148,7 @@ if [ "$USER_OS" = "3" ]; then
       sleep 10
       vi /root/fan-control/gen-config.py
       echo "Executing gen-config.py to generate the config file"
-      /root/fan-control/gen-config.py
+            /root/fan-control/gen-config.py --profile $CONFIG_PROFILE
     fi
     echo "Copying fan-control.sh to /usr/local/etc/rc.d/ so it can auto start on reboots"
     cp fan-control.sh /usr/local/etc/rc.d/

@@ -20,7 +20,7 @@ Primary files:
 - `temperature.sh`
 - `defaults/fan-control.py`
 - `config.toml`
-- `defaults/gen-config.py.proxmox`
+- `defaults/gen-config.py`
 
 Changes:
 
@@ -41,7 +41,7 @@ Primary files:
 
 - `defaults/fan-control.py`
 - `config.toml`
-- `defaults/gen-config.py.proxmox`
+- `defaults/gen-config.py`
 - `README.md`
 
 Changes:
@@ -62,7 +62,7 @@ Primary files:
 
 - `defaults/fan-control.py`
 - `config.toml`
-- `defaults/gen-config.py.proxmox`
+- `defaults/gen-config.py`
 - `README.md`
 
 Changes:
@@ -104,7 +104,7 @@ Acceptance criteria:
 Primary files:
 
 - `config.toml`
-- `defaults/gen-config.py.proxmox`
+- `defaults/gen-config.py`
 - `install.sh`
 - `README.md`
 
