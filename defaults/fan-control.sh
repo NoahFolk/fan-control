@@ -7,15 +7,12 @@ PIDFILE="/root/fan-control/fan-control.pid"
 name=fan-control
 
 rc_start() {
-
-  if ! output=$(pgrep -F $PIDFILE 2>/dev/null)
-  then
-    echo "Starting Fan Control..."
-    /root/fan-control/fan-control.py & echo $! > $PIDFILE
-  else
-    echo "Fan control already running"
-  fi
-
+    if ! output=$(pgrep -F $PIDFILE 2>/dev/null) then
+        echo "Starting Fan Control..."
+        /root/fan-control/fan-control.py & echo $! > $PIDFILE
+    else
+        echo "Fan control already running"
+    fi
 }
 
 rc_stop() {
@@ -28,10 +25,10 @@ rc_stop() {
 case $1 in
     start)
         rc_start
-	;;
+        ;;
     stop)
         rc_stop
-	;;
+        ;;
     restart)
         rc_stop
         rc_start
