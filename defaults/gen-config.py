@@ -17,7 +17,7 @@ except ModuleNotFoundError:
     import tomli as tomllib
 
 CONFIG_PATH = "config.toml"
-DEFAULT_PROFILE = "proxmox"
+DEFAULT_PROFILE = "Proxmox"
 
 COMMON_CONFIG = {
     "fan_curve": {
@@ -65,7 +65,7 @@ COMMON_CONFIG = {
 }
 
 PROFILE_OVERRIDES = {
-    "proxmox": {
+    "Proxmox": {
         "system_info": {
             "system_os": "Proxmox",
             "ipmi_type": "iDRAC_Gen08",
@@ -74,16 +74,16 @@ PROFILE_OVERRIDES = {
             "disks": ["sda", "sdb", "sdc", "sdd", "sde", "sdf", "sdg", "sdh", "sdi", "sdj"],
         },
     },
-    "truenas": {
+    "TrueNAS-CORE": {
         "system_info": {
-            "system_os": "TrueNAS",
+            "system_os": "TrueNAS CORE",
             "ipmi_type": "SM_X10",
             "single_zone": True,
             "temp_focus": "Both",
             "disks": ["da0", "da1", "da2", "da3", "da4", "da5", "da6", "da7", "da8", "da9", "da10", "da11", "da12", "da13"],
         },
     },
-    "pfsense": {
+    "pfSense": {
         "system_info": {
             "system_os": "pfSense",
             "ipmi_type": "SM_X10",
@@ -127,9 +127,9 @@ PROFILE_OVERRIDES = {
 }
 
 SYSTEM_OS_TO_PROFILE = {
-    "Proxmox": "proxmox",
-    "TrueNAS": "truenas",
-    "pfSense": "pfsense",
+    "Proxmox": "Proxmox",
+    "TrueNAS CORE": "TrueNAS-CORE",
+    "pfSense": "pfSense",
 }
 
 
