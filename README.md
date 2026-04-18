@@ -6,7 +6,7 @@ In order to circumvent this inability to query the disk sensors directly,
 
     qm guest exec
 
-is utilized on the (PVE) host to retrieve the disk temperatures using the command smartctl inside of the (TrueNAS) VM. Just make sure the disks (connected to the disk controller / HBA) are mapped accordingly in the config.ini file, they should follow the naming convention as displayed in lsblk. 
+is utilized on the (PVE) host to retrieve the disk temperatures using the command smartctl inside of the (TrueNAS) VM. Just make sure the disks (connected to the disk controller / HBA) are mapped accordingly in the config.toml file, they should follow the naming convention as displayed in lsblk.
 
 Make sure to place the temperature.sh file in the /root folder of the (TrueNAS) VM, and the getdisktemp.sh file should be placed in the working directory of the Fan-Control service on the (PVE) host (/root/fan-control). The placeholder "VMID_HERE_CHANGEME" must be changed into the VMID of the target VM.
 
@@ -60,7 +60,7 @@ To uninstall, there is a matching uninstall.sh script. However, I do not script 
 
 ## Changing the configuration
 
-Whenever you want to change something like adding/removing a drive to monitor, changing the fan curve, etc., you can directly edit config.ini and the changes will be recognized by the script and implemented on the next loop. I recommend "testing" changes by changing config.ini, and when you're happy you can edit gen-config.py. Doing it this way ensures that if you make a mistake in the config.ini you can execute your gen-config.py with it's "known good" settings and it will regenerate config.ini for you.
+Whenever you want to change something like adding/removing a drive to monitor, changing the fan curve, etc., you can directly edit config.toml and the changes will be recognized by the script and implemented on the next loop. I recommend "testing" changes by changing config.toml, and when you're happy you can edit gen-config.py. Doing it this way ensures that if you make a mistake in the config.toml you can execute your gen-config.py with it's "known good" settings and it will regenerate config.toml for you.
 
 ## Start/stop/restart
 
