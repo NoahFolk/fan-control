@@ -1,14 +1,15 @@
 # Adjusted fan-control script with a disk controller / HBA passthrough  
 
-This is a crudely adjusted version of the script made by jp-powers, and is used to monitor the disk temperatures when those are running under a VM (TrueNAS SCALE) on top of a hypervisor (Proxmox VE). When the disk controller / HBA is passed through to a (Truenas) VM, the (Proxmox) host is unable to see the disks connected to the controller / HBA. This makes the script inaccurate and can be risky even, as the disks may run too hot if they're left unchecked. 
+This is a crudely adjusted version of the script made by jp-powers, and is used to monitor the disk temperatures when those are running under a VM (TrueNAS SCALE) on top of a hypervisor (Proxmox VE). When the disk controller / HBA is passed through to a (TrueNAS) VM, the (Proxmox) host is unable to see the disks connected to the controller / HBA. This makes the script inaccurate and can be risky even, as the disks may run too hot if they're left unchecked.
 
-In order to circumvent this inability to query the disk sensors directly,
+This fork now supports two ways to retrieve remote disk temperatures:
 
-    qm guest exec
+- legacy mode using `qm guest exec`
+- ssh mode using a single remote CSV report from `temperature.sh`
 
-is utilized on the (PVE) host to retrieve the disk temperatures using the command smartctl inside of the (TrueNAS) VM. Just make sure the disks (connected to the disk controller / HBA) are mapped accordingly in the config.toml file, they should follow the naming convention as displayed in lsblk.
+Both modes are configured in `config.toml` under `[disk_temps]`. Legacy mode keeps compatibility with the older upstream behavior. SSH mode is the preferred path for this fork.
 
-Make sure to place the temperature.sh file in the /root folder of the (TrueNAS) VM, and the getdisktemp.sh file should be placed in the working directory of the Fan-Control service on the (PVE) host (/root/fan-control). The placeholder "VMID_HERE_CHANGEME" must be changed into the VMID of the target VM.
+Make sure to place `temperature.sh` in the `/root` folder of the TrueNAS VM, and `getdisktemp.sh` in the working directory of the Fan-Control service on the Proxmox host (`/root/fan-control`). If you use legacy mode, change `VMID_HERE_CHANGEME` in `config.toml` to the target VM ID. If you use SSH mode, configure the host, user, port, and remote script path in `[truenas_ssh]`.
 
 This script has been tested on a Supermicro X10SDV motherboard running Proxmox with a virtual Truenas SCALE VM, however with some adjustments it should run on other distros as well.
 
@@ -61,6 +62,22 @@ To uninstall, there is a matching uninstall.sh script. However, I do not script 
 ## Changing the configuration
 
 Whenever you want to change something like adding/removing a drive to monitor, changing the fan curve, etc., you can directly edit config.toml and the changes will be recognized by the script and implemented on the next loop. I recommend "testing" changes by changing config.toml, and when you're happy you can edit gen-config.py. Doing it this way ensures that if you make a mistake in the config.toml you can execute your gen-config.py with it's "known good" settings and it will regenerate config.toml for you.
+
+## Stable disk mapping
+
+If you are using SSH mode, do not rely on `sda`, `sdb`, and similar kernel names as the long-term identity for your drives. Those names can change after reboot, controller reset, or hardware changes.
+
+Recommended workflow:
+
+1. Inside the TrueNAS VM, list persistent IDs with `ls -l /dev/disk/by-id/`.
+2. Check serial numbers with `smartctl -i /dev/sdX` or `smartctl -a /dev/sdX | grep Serial`.
+3. Build a small mapping table of bay position, serial number, and `/dev/disk/by-id` entry.
+4. Set `[disk_temps].disk_identifier` in `config.toml` to either `serial` or `by_id`.
+5. Populate `[system_info].disks` with those stable identifiers instead of kernel device names.
+
+The SSH collector reports `device`, `serial`, `model`, `by_id`, and `temp_c`. That allows the controller to match temperatures using a stable identifier while still logging the current device name from the VM.
+
+If a configured drive is missing from the SSH report, the script will log a warning instead of crashing. If the temp reads keep failing, the HDD zone will move to the configured fallback speed.
 
 ## Start/stop/restart
 

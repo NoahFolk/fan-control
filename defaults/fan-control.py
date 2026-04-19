@@ -21,6 +21,11 @@ except ModuleNotFoundError:
 
 CONFIG_PATH = "config.toml"
 GETDISKTEMP_PATH = "/root/fan-control/getdisktemp.sh"
+SUPPORTED_DISK_IDENTIFIER_FIELDS = {"device", "serial", "model", "by_id"}
+
+
+class HddTempReadError(RuntimeError):
+    pass
 
 
 def load_config():
@@ -94,12 +99,16 @@ def parse_disk_temperature_report(report_text):
     expected_fields = {"device", "serial", "model", "temp_c"}
 
     if reader.fieldnames is None or not expected_fields.issubset(set(reader.fieldnames)):
-        raise ValueError("Invalid disk temperature report format")
+        raise HddTempReadError("Invalid disk temperature report format")
 
     rows = []
     for row in reader:
         rows.append({key: (value or "").strip() for key, value in row.items()})
     return rows
+
+
+def normalize_disk_identifier(value):
+    return str(value).strip().casefold()
 
 
 def get_legacy_hdd_temp(disk_list, legacy_config):
@@ -123,7 +132,7 @@ def get_legacy_hdd_temp(disk_list, legacy_config):
             )
 
     if not smartctl_output:
-        raise RuntimeError("No valid HDD temperatures returned by legacy collector")
+        raise HddTempReadError("No valid HDD temperatures returned by legacy collector")
 
     hdd_avg_temp = sum(smartctl_output) / len(smartctl_output)
     hdd_max_temp = max(smartctl_output)
@@ -146,9 +155,21 @@ def get_ssh_hdd_temp(disk_list, disk_identifier, ssh_config):
     )
     report_rows = parse_disk_temperature_report(report_text)
 
+    if disk_identifier not in SUPPORTED_DISK_IDENTIFIER_FIELDS:
+        raise ValueError(
+            "Unsupported disk identifier: {identifier}".format(identifier=disk_identifier)
+        )
+
+    if report_rows and disk_identifier not in report_rows[0]:
+        raise HddTempReadError(
+            "Disk identifier '{identifier}' not present in SSH temp report".format(
+                identifier=disk_identifier
+            )
+        )
+
     disks_by_identifier = {}
     for row in report_rows:
-        identifier_value = row.get(disk_identifier, "")
+        identifier_value = normalize_disk_identifier(row.get(disk_identifier, ""))
         if identifier_value:
             disks_by_identifier[identifier_value] = row
 
@@ -158,7 +179,8 @@ def get_ssh_hdd_temp(disk_list, disk_identifier, ssh_config):
 
     for disk_id in disk_list:
         disk_key = str(disk_id).strip()
-        row = disks_by_identifier.get(disk_key)
+        normalized_key = normalize_disk_identifier(disk_key)
+        row = disks_by_identifier.get(normalized_key)
         if row is None:
             missing_disks.append(disk_key)
             continue
@@ -184,7 +206,7 @@ def get_ssh_hdd_temp(disk_list, disk_identifier, ssh_config):
             ", ".join(skipped_disks),
         )
     if not matched_temps:
-        raise RuntimeError("No valid HDD temperatures returned by SSH collector")
+        raise HddTempReadError("No valid HDD temperatures returned by SSH collector")
 
     hdd_avg_temp = sum(matched_temps) / len(matched_temps)
     hdd_max_temp = max(matched_temps)
@@ -199,6 +221,18 @@ def get_hdd_temp(disk_list, disk_temp_mode, disk_identifier, legacy_config, ssh_
         return get_legacy_hdd_temp(disk_list, legacy_config)
 
     raise ValueError("Unsupported disk temperature method: {mode}".format(mode=disk_temp_mode))
+
+
+def apply_hdd_fallback_speed(fan_control_linked, platform, fallback_speed, current_cpu_fan_speed):
+    target_speed = int(fallback_speed)
+
+    if fan_control_linked is True:
+        target_speed = max(target_speed, int(current_cpu_fan_speed))
+        set_linked_zone_fan_speed(platform, target_speed)
+        return target_speed
+
+    set_hdd_zone_fan_speed(target_speed)
+    return target_speed
 
 
 # based on the fan curve, decide what the appropriate fan power level (fan speed) should be, return it as an integer.
@@ -295,6 +329,7 @@ current_hdd_fan_speed = 100
 hdd_suggested_fan_speed = 0
 last_cpu_fan_speed = 0
 last_hdd_fan_speed = 0
+hdd_read_failures = 0
 
 # if Supermicro, set fans to full so they don't "warble" and hold at our most recent request
 if hardware_platform == "SM_X10":
@@ -334,6 +369,8 @@ while True:  # This is a service so it needs to run forever... so... lets make a
             # temperature related data
             hdd_max_temp = config_object["hdd_panic"]["max_temp"]
             hdd_max_temp_addition = config_object["hdd_panic"]["panic_addition"]
+            hdd_fallback_speed = config_object.get("hdd_fallback", {}).get("speed", 100)
+            hdd_max_read_failures = config_object.get("hdd_fallback", {}).get("max_read_failures", 1)
             # timers
             detect_cpu_temp_every = config_object["detect_timers"]["cpu_timer"]
             detect_hdd_temp_every = config_object["detect_timers"]["hdd_timer"]
@@ -358,9 +395,11 @@ while True:  # This is a service so it needs to run forever... so... lets make a
             HDD Fan Curve: {hdd_curve}
             HDD Panic Temp: {hmax}
             HDD Panic Addition: {addition}
+            HDD Fallback Speed: {fallback}
+            HDD Max Read Failures: {read_failures}
             Log Frequency: {freq}
 
-            """.format(os=operating_system, plat=hardware_platform, link=fan_control_linked, method=disk_temp_mode, identifier=disk_identifier, drives=hdd_to_monitor, cpu_curve=cpu_fan_curve, hdd_curve=hdd_fan_curve, hmax=hdd_max_temp, addition=hdd_max_temp_addition, freq=log_frequency))
+            """.format(os=operating_system, plat=hardware_platform, link=fan_control_linked, method=disk_temp_mode, identifier=disk_identifier, drives=hdd_to_monitor, cpu_curve=cpu_fan_curve, hdd_curve=hdd_fan_curve, hmax=hdd_max_temp, addition=hdd_max_temp_addition, fallback=hdd_fallback_speed, read_failures=hdd_max_read_failures, freq=log_frequency))
 
         if control_focus == "CPU":
             if fan_control_linked is True:
@@ -418,14 +457,45 @@ while True:  # This is a service so it needs to run forever... so... lets make a
                     current_cpu_temp, cpu_fan_curve)
                 hdd_itter += detect_cpu_temp_every  # bump the hdd timer
                 if hdd_itter >= detect_hdd_temp_every:  # check if we need to run our HDD checks
-                    # get current HDD average and max temps
-                    current_hdd_temp = get_hdd_temp(
-                        hdd_to_monitor,
-                        disk_temp_mode,
-                        disk_identifier,
-                        legacy_guest_config,
-                        ssh_temp_config,
-                    )
+                    try:
+                        current_hdd_temp = get_hdd_temp(
+                            hdd_to_monitor,
+                            disk_temp_mode,
+                            disk_identifier,
+                            legacy_guest_config,
+                            ssh_temp_config,
+                        )
+                        hdd_read_failures = 0
+                    except HddTempReadError as exc:
+                        hdd_read_failures += 1
+                        logging.warning(
+                            "HDD temp read failed (%s/%s): %s",
+                            hdd_read_failures,
+                            hdd_max_read_failures,
+                            exc,
+                        )
+                        if hdd_read_failures >= hdd_max_read_failures:
+                            hdd_suggested_fan_speed = apply_hdd_fallback_speed(
+                                True,
+                                hardware_platform,
+                                hdd_fallback_speed,
+                                current_cpu_fan_speed,
+                            )
+                            last_hdd_fan_speed = hdd_suggested_fan_speed
+                            logging.warning(
+                                "Applying HDD fallback speed due to read failures: %s%%",
+                                hdd_suggested_fan_speed,
+                            )
+                        else:
+                            hold_speed = max(current_cpu_fan_speed, hdd_suggested_fan_speed)
+                            if log_frequency != "On_Panic":
+                                logging.info(
+                                    "HDD temp unavailable. Holding linked fan speed at %s%%",
+                                    hold_speed,
+                                )
+                            set_linked_zone_fan_speed(hardware_platform, hold_speed)
+                        hdd_itter = 0
+                        continue
                     # get what the fan speed should be based on above temp
                     current_hdd_fan_speed = get_hdd_zone_speed(
                         current_hdd_temp, hdd_max_temp, hdd_max_temp_addition, hdd_fan_curve)
@@ -550,14 +620,42 @@ while True:  # This is a service so it needs to run forever... so... lets make a
 
                 hdd_itter += detect_cpu_temp_every  # bump the hdd timer
                 if hdd_itter >= detect_hdd_temp_every:  # check if we need to run our HDD checks
-                    # get current HDD average and max temps
-                    current_hdd_temp = get_hdd_temp(
-                        hdd_to_monitor,
-                        disk_temp_mode,
-                        disk_identifier,
-                        legacy_guest_config,
-                        ssh_temp_config,
-                    )
+                    try:
+                        current_hdd_temp = get_hdd_temp(
+                            hdd_to_monitor,
+                            disk_temp_mode,
+                            disk_identifier,
+                            legacy_guest_config,
+                            ssh_temp_config,
+                        )
+                        hdd_read_failures = 0
+                    except HddTempReadError as exc:
+                        hdd_read_failures += 1
+                        logging.warning(
+                            "HDD temp read failed (%s/%s): %s",
+                            hdd_read_failures,
+                            hdd_max_read_failures,
+                            exc,
+                        )
+                        if hdd_read_failures >= hdd_max_read_failures:
+                            current_hdd_fan_speed = apply_hdd_fallback_speed(
+                                False,
+                                hardware_platform,
+                                hdd_fallback_speed,
+                                current_cpu_fan_speed,
+                            )
+                            last_hdd_fan_speed = current_hdd_fan_speed
+                            logging.warning(
+                                "Applying HDD fallback speed due to read failures: %s%%",
+                                current_hdd_fan_speed,
+                            )
+                        else:
+                            logging.info(
+                                "HDD temp unavailable. Keeping previous HDD fan speed at %s%%",
+                                last_hdd_fan_speed,
+                            )
+                        hdd_itter = 0
+                        continue
                     # get what the fan speed should be based on above temp
                     current_hdd_fan_speed = get_hdd_zone_speed(
                         current_hdd_temp, hdd_max_temp, hdd_max_temp_addition, hdd_fan_curve)

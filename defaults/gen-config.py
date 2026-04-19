@@ -69,6 +69,10 @@ COMMON_CONFIG = {
         "max_temp": 50,
         "panic_addition": 5,
     },
+    "hdd_fallback": {
+        "speed": 40,
+        "max_read_failures": 2,
+    },
     "detect_timers": {
         "cpu_timer": 1,
         "hdd_timer": 30,
@@ -222,6 +226,7 @@ def main():
     write_table(lines, "truenas_ssh", config_object["truenas_ssh"])
     write_table(lines, "fan_curve", config_object["fan_curve"])
     write_table(lines, "hdd_panic", config_object["hdd_panic"])
+    write_table(lines, "hdd_fallback", config_object["hdd_fallback"])
     write_table(lines, "detect_timers", config_object["detect_timers"])
     write_table(lines, "log_config", config_object["log_config"])
 
