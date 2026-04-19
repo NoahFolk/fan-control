@@ -4,6 +4,8 @@
 ##
 
 # import needed components
+import csv
+import importlib
 import time  # used for sleep
 import subprocess  # used to execute external commands
 import logging  # lets make some nice logs
@@ -15,9 +17,10 @@ try:
     import tomllib
 except ModuleNotFoundError:
     # tomli is a backport of tomllib for Python versions < 3.11
-    import tomli as tomllib
+    tomllib = importlib.import_module("tomli")
 
 CONFIG_PATH = "config.toml"
+GETDISKTEMP_PATH = "/root/fan-control/getdisktemp.sh"
 
 
 def load_config():
@@ -86,21 +89,116 @@ def get_cpu_temp(op_sys):
         return round(cpu_avg_temp, 2)
 
 
-def get_hdd_temp(disk_list):  # this feels like a silly way to do it but it works I guess
-    # create output list for smartctl run(s) and hdd_temps list, then get the HDD temps into list
+def parse_disk_temperature_report(report_text):
+    reader = csv.DictReader(report_text.splitlines())
+    expected_fields = {"device", "serial", "model", "temp_c"}
+
+    if reader.fieldnames is None or not expected_fields.issubset(set(reader.fieldnames)):
+        raise ValueError("Invalid disk temperature report format")
+
+    rows = []
+    for row in reader:
+        rows.append({key: (value or "").strip() for key, value in row.items()})
+    return rows
+
+
+def get_legacy_hdd_temp(disk_list, legacy_config):
     smartctl_output = []
+    vmid = str(legacy_config.get("vmid", "VMID_HERE_CHANGEME"))
+    guest_shell = legacy_config.get("guest_shell", "bash")
+    remote_script = legacy_config.get("remote_script", "/root/temperature.sh")
 
-    for disk_dev in disk_list:  # iterate thru the list of drives to monitor
-        hdd_temps_cmd = "/root/fan-control/getdisktemp.sh " + disk_dev + \
-            ""  # define command to find the HDD temps by device
-        # run the command, dump to raw output list
-        smartctl_output.append(
-            int(subprocess.check_output(hdd_temps_cmd, shell=True)))
+    for disk_dev in disk_list:
+        raw_temp = subprocess.check_output(
+            [GETDISKTEMP_PATH, "legacy", vmid, guest_shell, remote_script, str(disk_dev)],
+            text=True,
+        ).strip()
+        try:
+            smartctl_output.append(int(raw_temp))
+        except ValueError:
+            logging.warning(
+                "Ignoring invalid legacy HDD temp for %s: %s",
+                disk_dev,
+                raw_temp,
+            )
 
-    # run a quick average of the data
+    if not smartctl_output:
+        raise RuntimeError("No valid HDD temperatures returned by legacy collector")
+
     hdd_avg_temp = sum(smartctl_output) / len(smartctl_output)
-    hdd_max_temp = max(smartctl_output)  # find the highest temp disk
+    hdd_max_temp = max(smartctl_output)
     return [round(hdd_avg_temp, 2), hdd_max_temp]
+
+
+def get_ssh_hdd_temp(disk_list, disk_identifier, ssh_config):
+    host = ssh_config.get("host")
+    user = ssh_config.get("user")
+    port = str(ssh_config.get("port", 22))
+    remote_script = ssh_config.get("remote_script", "/root/temperature.sh")
+    connect_timeout = str(ssh_config.get("connect_timeout", 10))
+
+    if not host or not user:
+        raise RuntimeError("SSH disk temp mode requires truenas_ssh.host and truenas_ssh.user")
+
+    report_text = subprocess.check_output(
+        [GETDISKTEMP_PATH, "ssh", host, user, port, remote_script, connect_timeout],
+        text=True,
+    )
+    report_rows = parse_disk_temperature_report(report_text)
+
+    disks_by_identifier = {}
+    for row in report_rows:
+        identifier_value = row.get(disk_identifier, "")
+        if identifier_value:
+            disks_by_identifier[identifier_value] = row
+
+    matched_temps = []
+    missing_disks = []
+    skipped_disks = []
+
+    for disk_id in disk_list:
+        disk_key = str(disk_id).strip()
+        row = disks_by_identifier.get(disk_key)
+        if row is None:
+            missing_disks.append(disk_key)
+            continue
+
+        temp_value = row.get("temp_c", "")
+        if temp_value in {"", "NA", "STANDBY", "-"}:
+            skipped_disks.append("{id}={temp}".format(id=disk_key, temp=temp_value or "missing"))
+            continue
+
+        try:
+            matched_temps.append(int(float(temp_value)))
+        except ValueError:
+            skipped_disks.append("{id}={temp}".format(id=disk_key, temp=temp_value))
+
+    if missing_disks:
+        logging.warning(
+            "Configured disks missing from SSH temp report: %s",
+            ", ".join(missing_disks),
+        )
+    if skipped_disks:
+        logging.warning(
+            "Configured disks skipped due to invalid temp values: %s",
+            ", ".join(skipped_disks),
+        )
+    if not matched_temps:
+        raise RuntimeError("No valid HDD temperatures returned by SSH collector")
+
+    hdd_avg_temp = sum(matched_temps) / len(matched_temps)
+    hdd_max_temp = max(matched_temps)
+    return [round(hdd_avg_temp, 2), hdd_max_temp]
+
+
+def get_hdd_temp(disk_list, disk_temp_mode, disk_identifier, legacy_config, ssh_config):
+    if disk_temp_mode == "ssh":
+        return get_ssh_hdd_temp(disk_list, disk_identifier, ssh_config)
+
+    if disk_temp_mode in {"legacy", "legacy_qm_guest_exec"}:
+        return get_legacy_hdd_temp(disk_list, legacy_config)
+
+    raise ValueError("Unsupported disk temperature method: {mode}".format(mode=disk_temp_mode))
 
 
 # based on the fan curve, decide what the appropriate fan power level (fan speed) should be, return it as an integer.
@@ -222,6 +320,14 @@ while True:  # This is a service so it needs to run forever... so... lets make a
             fan_control_linked = config_object["system_info"]["single_zone"]
             control_focus = config_object["system_info"]["temp_focus"]
             hdd_to_monitor = config_object["system_info"]["disks"]
+            disk_temp_config = config_object.get("disk_temps", {})
+            disk_temp_mode = disk_temp_config.get("method", "legacy")
+            disk_identifier = disk_temp_config.get(
+                "disk_identifier",
+                config_object["system_info"].get("disk_identifier", "device"),
+            )
+            legacy_guest_config = config_object.get("qm_guest_exec", {})
+            ssh_temp_config = config_object.get("truenas_ssh", {})
             # fan curve
             cpu_fan_curve = config_object["fan_curve"]["cpu"]
             hdd_fan_curve = config_object["fan_curve"]["hdd"]
@@ -245,6 +351,8 @@ while True:  # This is a service so it needs to run forever... so... lets make a
             System OS: {os}
             Hardware Platform: {plat}
             Linked Fan Zones: {link}
+            Disk Temp Method: {method}
+            Disk Identifier: {identifier}
             Drives to Monitor: {drives}
             CPU Fan Curve: {cpu_curve}
             HDD Fan Curve: {hdd_curve}
@@ -252,7 +360,7 @@ while True:  # This is a service so it needs to run forever... so... lets make a
             HDD Panic Addition: {addition}
             Log Frequency: {freq}
 
-            """.format(os=operating_system, plat=hardware_platform, link=fan_control_linked, drives=hdd_to_monitor, cpu_curve=cpu_fan_curve, hdd_curve=hdd_fan_curve, hmax=hdd_max_temp, addition=hdd_max_temp_addition, freq=log_frequency))
+            """.format(os=operating_system, plat=hardware_platform, link=fan_control_linked, method=disk_temp_mode, identifier=disk_identifier, drives=hdd_to_monitor, cpu_curve=cpu_fan_curve, hdd_curve=hdd_fan_curve, hmax=hdd_max_temp, addition=hdd_max_temp_addition, freq=log_frequency))
 
         if control_focus == "CPU":
             if fan_control_linked is True:
@@ -311,7 +419,13 @@ while True:  # This is a service so it needs to run forever... so... lets make a
                 hdd_itter += detect_cpu_temp_every  # bump the hdd timer
                 if hdd_itter >= detect_hdd_temp_every:  # check if we need to run our HDD checks
                     # get current HDD average and max temps
-                    current_hdd_temp = get_hdd_temp(hdd_to_monitor)
+                    current_hdd_temp = get_hdd_temp(
+                        hdd_to_monitor,
+                        disk_temp_mode,
+                        disk_identifier,
+                        legacy_guest_config,
+                        ssh_temp_config,
+                    )
                     # get what the fan speed should be based on above temp
                     current_hdd_fan_speed = get_hdd_zone_speed(
                         current_hdd_temp, hdd_max_temp, hdd_max_temp_addition, hdd_fan_curve)
@@ -437,7 +551,13 @@ while True:  # This is a service so it needs to run forever... so... lets make a
                 hdd_itter += detect_cpu_temp_every  # bump the hdd timer
                 if hdd_itter >= detect_hdd_temp_every:  # check if we need to run our HDD checks
                     # get current HDD average and max temps
-                    current_hdd_temp = get_hdd_temp(hdd_to_monitor)
+                    current_hdd_temp = get_hdd_temp(
+                        hdd_to_monitor,
+                        disk_temp_mode,
+                        disk_identifier,
+                        legacy_guest_config,
+                        ssh_temp_config,
+                    )
                     # get what the fan speed should be based on above temp
                     current_hdd_fan_speed = get_hdd_zone_speed(
                         current_hdd_temp, hdd_max_temp, hdd_max_temp_addition, hdd_fan_curve)

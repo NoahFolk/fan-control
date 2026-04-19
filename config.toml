@@ -3,7 +3,23 @@ system_os = "Proxmox"
 ipmi_type = "SM_X10"
 single_zone = true
 temp_focus = "Both"
-disks = ["sda", "sdb", "sdc", "sdd"]
+disks = ['SERIAL_A', 'SERIAL_B', 'SERIAL_C', 'SERIAL_D']
+
+[disk_temps]
+method = "ssh"
+disk_identifier = "serial"
+
+[qm_guest_exec]
+vmid = "VMID_HERE_CHANGEME"
+guest_shell = "bash"
+remote_script = "/root/temperature.sh"
+
+[truenas_ssh]
+host = "truenas"
+user = "root"
+port = 22
+remote_script = "/root/temperature.sh"
+connect_timeout = 10
 
 [fan_curve]
 cpu = [[0, 0], [35, 1], [45, 2], [55, 2], [65, 3], [75, 6], [80, 35], [85, 40], [90, 80], [95, 90], [100, 100]]
@@ -12,6 +28,10 @@ hdd = [[0, 0], [25, 5], [35, 10], [40, 15], [45, 20], [50, 30], [60, 60], [70, 7
 [hdd_panic]
 max_temp = 50
 panic_addition = 5
+
+[hdd_fallback]
+speed = 40
+max_read_failures = 2
 
 [detect_timers]
 cpu_timer = 1
