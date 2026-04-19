@@ -401,6 +401,11 @@ while True:  # This is a service so it needs to run forever... so... lets make a
 
             """.format(os=operating_system, plat=hardware_platform, link=fan_control_linked, method=disk_temp_mode, identifier=disk_identifier, drives=hdd_to_monitor, cpu_curve=cpu_fan_curve, hdd_curve=hdd_fan_curve, hmax=hdd_max_temp, addition=hdd_max_temp_addition, fallback=hdd_fallback_speed, read_failures=hdd_max_read_failures, freq=log_frequency))
 
+            if hardware_platform == "SM_X10" and fan_control_linked is False:
+                logging.info(
+                    "SM_X10 split-zone map active: Zone 0 = CPU/system fans, Zone 1 = HDD/peripheral fans"
+                )
+
         if control_focus == "CPU":
             if fan_control_linked is True:
                 # get current CPU average temp

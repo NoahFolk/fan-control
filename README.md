@@ -79,6 +79,21 @@ The SSH collector reports `device`, `serial`, `model`, `by_id`, and `temp_c`. Th
 
 If a configured drive is missing from the SSH report, the script will log a warning instead of crashing. If the temp reads keep failing, the HDD zone will move to the configured fallback speed.
 
+## SM_X10 split zones
+
+For the target Supermicro X10SRL-F style setup, use `ipmi_type = "SM_X10"` and `single_zone = false`.
+
+Expected split-zone layout:
+
+- Zone 0 = numbered system fans such as `FAN1`, `FAN2`, `FAN3`, `FAN4`, `FAN5`
+- Zone 1 = peripheral or drive-wall fans such as `FANA`
+
+In this layout, CPU temperature drives Zone 0 and HDD temperature drives Zone 1.
+
+The starter curves in this fork intentionally keep both zones out of very low duty values. Testing with low fan duty settings on the tested Supermicro setup tended to make the fans surge back to maximum speed instead of holding a stable low RPM, so the default floor is set around the mid-30% range instead of trying to idle lower.
+
+Treat these curves as safe starting points, not universal truths. You should still validate them on your own chassis and fan wall.
+
 ## Start/stop/restart
 
 I've implemented some changes so the log should now capture more traceback errors and other critical exceptions. If you ever feel like you need to restart the script, you can do the following:

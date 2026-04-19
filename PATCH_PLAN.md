@@ -6,9 +6,9 @@ Adapt this fork so it can safely control fans on the Proxmox host for a Supermic
 
 ## Working Assumptions
 
-- Keep `defaults/fan-control.py` as the main controller instead of reviving `truenas-fanctl` as a separate service.
+- Keep `defaults/fan-control.py` as the main controller instead of splitting this fork into a second service.
 - Prefer SSH plus `smartctl` on the TrueNAS side over the earlier TrueNAS API/WebSocket idea.
-- Treat the existing `fan-control` repo as the runtime project and `truenas-fanctl` as reference material for safer temp collection, fan characterization, and deployment notes.
+- Treat the existing `fan-control` repo as the runtime project and keep any implementation notes needed for this fork inside this repo.
 
 ## Patch Order
 
@@ -25,7 +25,7 @@ Primary files:
 Changes:
 
 - Remove the hard dependency on `qm guest exec` and the current one-disk-at-a-time SMART parse.
-- Replace it with a single Proxmox-side helper that SSHes into TrueNAS and runs a safer collector similar to `truenas-fanctl/get_disk_temps.sh`.
+- Replace it with a single Proxmox-side helper that SSHes into TrueNAS and runs a safer all-disk collector.
 - Return structured output for all disks in one call instead of spawning one remote call per disk.
 - Parse multiple possible SMART temperature formats instead of assuming only one field layout.
 
@@ -49,7 +49,7 @@ Changes:
 - Stop treating `sda`, `sdb`, and similar names as the long-term identity for monitored drives.
 - Add a config format that allows stable identifiers, ideally serial numbers or another persistent identifier exported by the TrueNAS-side helper.
 - Make the temp collector return both a stable identifier and the current kernel device name so the controller can match disks safely.
-- Document how to build and maintain the mapping using the workflow already outlined in `truenas-fanctl/drive-mapping.md`.
+- Document how to build and maintain the mapping directly in this repo so the workflow is self-contained.
 
 Acceptance criteria:
 
@@ -70,7 +70,7 @@ Changes:
 - Use the existing split-zone logic already present in `defaults/fan-control.py` instead of inventing a second controller.
 - Configure the target deployment for `single_zone = False`.
 - Confirm Zone 0 is the CPU/system fan group and Zone 1 is the HDD fan group for the X10SRL-F wiring layout.
-- Convert the fan characterization data in `truenas-fanctl` into practical starter curves for CPU and HDD zones.
+- Convert measured fan behavior into practical starter curves for CPU and HDD zones.
 
 Acceptance criteria:
 
@@ -128,7 +128,7 @@ Primary files:
 
 Changes:
 
-- Use the characterization data from `truenas-fanctl/fan_sweep.py` and the CSV outputs to pick sensible minimum fan duty values.
+- Use measured fan behavior and validation runs to pick sensible minimum fan duty values.
 - Record the chosen minimum stable duty values for each zone in the repo docs.
 - Run a small manual validation matrix: idle, disk activity, CPU load, missing-disk simulation, and TrueNAS-unreachable simulation.
 

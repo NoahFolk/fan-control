@@ -22,6 +22,8 @@ NOTE: Both of these are generational, and it's very possible that if you have a 
 
 The script supports acting as a single fan zone or multiple zones. This variable is boolean, so set it to `True` or `False`. This is mostly a conceit for SuperMicro systems so users on Dell platforms will want to set this to True. Many SuperMicro motherboards work with numbered fan's (FAN1, FAN2, etc.) and lettered fans (FANA, FANB, etc.). These act as separate zones. The idea is numbered fans generally are the "system" (aka CPU and motherboard cooling) and lettered fans are peripherals (aka hard drives or GPUs). If you'd like to use the zones you can do by setting this variable to False.
 
+For the X10SRL-F style target setup in this fork, `single_zone = False` is the intended mode. Zone 0 should be the numbered CPU or system fan group, and Zone 1 should be the HDD or peripheral fan group such as `FANA`.
+
 ### Temperature Focus - temp_focus
 
 This setting allows you to tell the script to only care about the CPU temperature if you'd prefer. The available options are `"CPU"` or `"Both"`.
@@ -65,6 +67,8 @@ You'll have your own temperature ranges and target fan speeds that will be diffe
 Due to how the script reads the fan curve, you can add or remove as many entries from it as you want. Just make sure you match the surrounding formatting and ensure you go from lowest to highest.
 
 Ultimately, this is very user/environment dependent area of the configuration. The best suggestion is ball park what you think you want, then keep adjusting it until you're happy.
+
+For the tested Supermicro split-zone setup, the starter curves in this fork deliberately avoid very low duty values. The fan sweep data showed low-duty behavior that was unstable or not useful, so the default floor is around the mid-30% range rather than trying to run near idle.
 
 ## Maximum Temperatures - hdd_panic
 
